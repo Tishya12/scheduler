@@ -8,6 +8,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.util.CollectionUtils;
 
 import java.util.*;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 @Service(value = "appointmentService")
 public class AppointmentServiceImpl implements IAppointmentService {
@@ -29,7 +30,7 @@ public class AppointmentServiceImpl implements IAppointmentService {
             Integer operatorId = findAvailableOperator(appointmentBookRequest.getTime());
             if (operatorId != null) {
                 Integer appointmentId = saveAppointmentDetails(appointmentBookRequest, operatorId);
-                return "Appointment booked with " + operatorId + "and Appointment Id is " + appointmentId;
+                return "Appointment booked with operator " + operatorId + " and Appointment Id is " + appointmentId;
             } else {
                 return "No operator is available please try with some other slot";
             }
@@ -37,42 +38,33 @@ public class AppointmentServiceImpl implements IAppointmentService {
     }
 
     boolean checkOperatorAvailable(AppointmentBookRequest appointmentBookRequest) {
-        List<Appointment> appointments = appointmentRepository.findAll();
-        if (CollectionUtils.isEmpty(appointments)) {
-            return true;
-        }
-        for (Appointment appointment : appointments) {
-            if (appointment.getOperatorId().equals(appointmentBookRequest.getOperatorId()) && appointment.getTime() == appointmentBookRequest.getTime()) {
-                return false;
-            }
-        }
-        return true;
+        List<Appointment> appointments = appointmentRepository.findByOperatorIdAndTime(appointmentBookRequest.getOperatorId(), appointmentBookRequest.getTime());
+        return CollectionUtils.isEmpty(appointments);
     }
 
     Integer findAvailableOperator(Integer time) {
-        List<Appointment> appointments = appointmentRepository.findAll();
-        boolean op1 = true, op2 = true, op3 = true;
+        List<Appointment> appointments = appointmentRepository.findByTime(time);
 
+        // if it is a first appointment then returning 1st operator.
         if (CollectionUtils.isEmpty(appointments)) {
             return 1;
         }
 
-        for (Appointment appointment : appointments) {
-            if (appointment.getTime() == time) {
-                if (appointment.getOperatorId() == 1) {
-                    op1 = false;
-                }
-                if (appointment.getOperatorId() == 2) {
-                    op2 = false;
-                }
-                if (appointment.getOperatorId() == 3) {
-                    op3 = false;
-                }
+        HashSet<Integer> bookedOperators = new HashSet<>();
+        int n = appointments.size();
+        int k = 0;
+        while (bookedOperators.size() < 3 && k < n) {
+            bookedOperators.add(appointments.get(k).getOperatorId());
+            k++;
+        }
+
+        if (bookedOperators.size() == 3) return null;
+
+        for (int i = 1; i <= 3; i++) {
+            if (!bookedOperators.contains(i)) {
+                return i;
             }
         }
-        if (op1 == true) return 1;
-        if (op2 == true) return 2;
-        if (op3 == true) return 3;
         return null;
     }
 
@@ -86,13 +78,22 @@ public class AppointmentServiceImpl implements IAppointmentService {
     @Override
     public String rescheduleAppointment(AppointmentBookRequest appointmentBookRequest) {
         try {
+            AtomicBoolean operatorAvailable = new AtomicBoolean(false);
             if (appointmentBookRequest.getAppointmentId() != null) {
                 appointmentRepository.findById(appointmentBookRequest.getAppointmentId()).ifPresent(appointment -> {
-                    appointment.setTime(appointmentBookRequest.getTime());
-                    appointmentRepository.save(appointment);
+                    if (checkOperatorAvailable(appointmentBookRequest)) {
+                        operatorAvailable.set(true);
+                        appointment.setTime(appointmentBookRequest.getTime());
+                        appointmentRepository.save(appointment);
+                    }
                 });
-                return "Appointment booked with " + appointmentBookRequest.getOperatorId() + " and Appointment id is " + appointmentBookRequest.getAppointmentId();
-            } else return "Operator is not available please try with some other slot";
+
+                if (operatorAvailable.get()) {
+                    return "Appointment rescheduled with " + appointmentBookRequest.getOperatorId() + " and Appointment id is " + appointmentBookRequest.getAppointmentId();
+                } else {
+                    return "Requested operator is not available please try with some other operator or try some other slot";
+                }
+            } else return "Please provide Appointment Id";
         } catch (Exception ex) {
             return "Facing some issues, please try after sometime.";
         }
@@ -104,38 +105,33 @@ public class AppointmentServiceImpl implements IAppointmentService {
             appointmentRepository.deleteById(appointmentId);
             return "Appointment cancelled successfully";
         } catch (Exception e) {
-            return "Appointment not found";
+            return "Facing some issues, please try after sometime.";
         }
     }
 
     @Override
-    public Map<String, List<String>> getAllAppointmentsByOperatorId(Integer operatorId) {
-        List<Appointment> appointments = appointmentRepository.findAll();
-        Map<String, List<String>> allAppointments = new HashMap<>();
+    public List<String> getAllAppointmentsByOperatorId(Integer operatorId) {
+        List<Appointment> appointments = appointmentRepository.findByOperatorId(operatorId);
         List<String> timeSlots = new ArrayList<>();
         try {
             for (Appointment appointment : appointments) {
-                if (Objects.equals(appointment.getOperatorId(), operatorId)) {
-                    String timeSlot = appointment.getTime() + "-" + (appointment.getTime() + 1);
-                    timeSlots.add(timeSlot);
-                }
+                String timeSlot = appointment.getTime() + "-" + (appointment.getTime() + 1);
+                timeSlots.add(timeSlot);
             }
-            allAppointments.put("Booked Time Slots", timeSlots);
-            return allAppointments;
+            Collections.sort(timeSlots);
+            return timeSlots;
         } catch (Exception e) {
             throw new RuntimeException();
         }
     }
 
     @Override
-    public Map<String, List<String>> getAllAvailableSlotsByOperatorId(Integer operatorId) {
-        List<Appointment> appointments = appointmentRepository.findAll();
+    public List<String> getAllAvailableSlotsByOperatorId(Integer operatorId) {
+        List<Appointment> appointments = appointmentRepository.findByOperatorId(operatorId);
         List<Integer> bookedTimeSlots = new ArrayList<>();
         try {
             for (Appointment appointment : appointments) {
-                if (Objects.equals(appointment.getOperatorId(), operatorId)) {
-                    bookedTimeSlots.add(appointment.getTime());
-                }
+                bookedTimeSlots.add(appointment.getTime());
             }
             Collections.sort(bookedTimeSlots);
             return findOpenSlots(bookedTimeSlots);
@@ -144,9 +140,8 @@ public class AppointmentServiceImpl implements IAppointmentService {
         }
     }
 
-    public static Map<String, List<String>> findOpenSlots(List<Integer> bookedSlots) {
+    public static List<String> findOpenSlots(List<Integer> bookedSlots) {
         List<String> openSlots = new ArrayList<>();
-        Map<String, List<String>> allOpenSlots = new HashMap<>();
         int start = 1;
         for (int end : bookedSlots) {
             if (start < end) {
@@ -154,11 +149,10 @@ public class AppointmentServiceImpl implements IAppointmentService {
             }
             start = end + 1;
         }
-        if (start <= 24) {
+        if (start < 24) {
             openSlots.add(start + "-" + 24);
         }
-        allOpenSlots.put("Available Slots", openSlots);
-        return allOpenSlots;
+        return openSlots;
     }
 
 

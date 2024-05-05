@@ -35,13 +35,13 @@ public class AppointmentController {
     }
 
     @GetMapping(value = "/showAllAppointments")
-    public ResponseEntity<Map<String, List<String>>> getAllAppointments(@RequestParam Integer operatorId) {
+    public ResponseEntity<List<String>> getAllAppointments(@RequestParam Integer operatorId) {
         return new ResponseEntity<>(appointmentService.getAllAppointmentsByOperatorId(operatorId), HttpStatus.OK);
 
     }
 
     @GetMapping(value = "/getAvailableSlots")
-    public ResponseEntity<Map<String, List<String>>> getAllAvailableSlots(@RequestParam Integer operatorId) {
+    public ResponseEntity<List<String>> getAllAvailableSlots(@RequestParam Integer operatorId) {
         return new ResponseEntity<>(appointmentService.getAllAvailableSlotsByOperatorId(operatorId), HttpStatus.OK);
     }
 

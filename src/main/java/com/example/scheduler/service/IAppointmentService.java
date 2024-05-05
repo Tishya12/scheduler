@@ -13,8 +13,8 @@ public interface IAppointmentService {
 
     public String cancelAppointment(Integer appointmentId);
 
-    public Map<String, List<String>> getAllAvailableSlotsByOperatorId(Integer operatorId);
+    public List<String> getAllAvailableSlotsByOperatorId(Integer operatorId);
 
-    public Map<String, List<String>> getAllAppointmentsByOperatorId(Integer operatorId);
+    public List<String> getAllAppointmentsByOperatorId(Integer operatorId);
 
 }
